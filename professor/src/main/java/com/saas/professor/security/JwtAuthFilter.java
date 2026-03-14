@@ -46,12 +46,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         final String token = authHeader.substring(7);
 
-        // DEBUG — remover após resolver o problema
-        System.out.println("=== JWT DEBUG ===");
-        System.out.println("TOKEN PREFIX: " + token.substring(0, Math.min(20, token.length())));
-        System.out.println("TOKEN VALID: " + jwtService.isTokenValid(token));
-        System.out.println("=================");
-
         // Token na blacklist (logout)
         if (Boolean.TRUE.equals(redisTemplate.hasKey("blacklist:" + token))) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
