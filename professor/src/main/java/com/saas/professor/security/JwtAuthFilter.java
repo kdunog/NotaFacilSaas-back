@@ -39,13 +39,18 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         final String authHeader = request.getHeader("Authorization");
 
-        // Sem token — deixa o Spring Security decidir (permitAll ou não)
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
         }
 
         final String token = authHeader.substring(7);
+
+        // DEBUG — remover após resolver o problema
+        System.out.println("=== JWT DEBUG ===");
+        System.out.println("TOKEN PREFIX: " + token.substring(0, Math.min(20, token.length())));
+        System.out.println("TOKEN VALID: " + jwtService.isTokenValid(token));
+        System.out.println("=================");
 
         // Token na blacklist (logout)
         if (Boolean.TRUE.equals(redisTemplate.hasKey("blacklist:" + token))) {
@@ -58,7 +63,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (!jwtService.isTokenValid(token)) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json");
-            response.getWriter().write("{\"error\":\"Token expirado ou inválido\"}");
+            response.getWriter().write("{\"error\":\"Token expirado ou invalido\"}");
             return;
         }
 
@@ -69,16 +74,14 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             ? adminUserDetailsService.loadUserByUsername(email)
             : userDetailsService.loadUserByUsername(email);
 
-        // Checar trial/plano apenas para professores (não admin)
         if (!isAdmin && userDetails instanceof TeacherUserDetails teacherDetails) {
             Teacher teacher = teacherDetails.getTeacher();
             String path = request.getRequestURI();
-            // Permite acesso ao checkout mesmo com trial expirado
             boolean isCheckout = path.startsWith("/api/v1/subscriptions/checkout");
             if (!isCheckout && !teacher.canAccess()) {
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 response.setContentType("application/json");
-                response.getWriter().write("{\"error\":\"TRIAL_EXPIRED\",\"message\":\"Seu período de teste expirou. Assine um plano para continuar.\"}");
+                response.getWriter().write("{\"error\":\"TRIAL_EXPIRED\",\"message\":\"Seu periodo de teste expirou. Assine um plano para continuar.\"}");
                 return;
             }
         }
