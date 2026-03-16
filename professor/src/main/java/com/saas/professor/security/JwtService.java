@@ -63,6 +63,10 @@ public class JwtService {
             .compact();
     }
 
+    public int getSecretLength() {
+        return secret.length();
+    }
+
     public boolean isAdminToken(String token) {
         try {
             Claims claims = getClaims(token);
