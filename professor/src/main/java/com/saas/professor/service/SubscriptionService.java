@@ -40,8 +40,14 @@ public class SubscriptionService {
     }
 
     public CheckoutResponse createCheckout(PlanType plan, Teacher teacher) {
-        String url = mercadoPagoService.createSubscriptionCheckout(teacher.getId(), plan);
-        return new CheckoutResponse(url);
+        try {
+            String url = mercadoPagoService.createSubscriptionCheckout(teacher.getId(), plan);
+            return new CheckoutResponse(url);
+        } catch (Exception e) {
+            System.err.println("CHECKOUT ERROR: " + e.getMessage());
+            e.printStackTrace();
+            throw new BusinessException("Erro ao iniciar assinatura: " + e.getMessage());
+        }
     }
 
     /**
