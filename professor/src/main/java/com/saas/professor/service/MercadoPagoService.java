@@ -1,16 +1,13 @@
 package com.saas.professor.service;
-
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
-
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
-
 import com.saas.professor.enums.PlanType;
 
 @Service
@@ -27,11 +24,36 @@ public class MercadoPagoService {
 
     private final RestTemplate restTemplate = new RestTemplate();
 
+    /**
+     * Cria um preapproval individualizado para o professor via API do MP.
+     * Retorna a URL de checkout personalizada com external_reference=teacherId.
+     */
+    @SuppressWarnings("unchecked")
     public String createSubscriptionCheckout(Long teacherId, PlanType plan) {
         String planId = getPlanId(plan);
-        String externalReference = teacherId + "%7C" + plan.name();
-        return "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id="
-                + planId + "&external_reference=" + externalReference;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("preapproval_plan_id", planId);
+        body.put("external_reference", String.valueOf(teacherId));
+        body.put("back_url", frontendUrl + "/dashboard");
+
+        try {
+            Map<String, Object> response = restTemplate.postForObject(
+                "https://api.mercadopago.com/preapproval",
+                new HttpEntity<>(body, headers),
+                Map.class
+            );
+            if (response != null && response.containsKey("init_point")) {
+                return (String) response.get("init_point");
+            }
+            throw new RuntimeException("MP nao retornou init_point");
+        } catch (Exception e) {
+            throw new RuntimeException("Erro ao criar preapproval: " + e.getMessage());
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -50,18 +72,12 @@ public class MercadoPagoService {
         }
     }
 
-    /**
-     * Cancela uma assinatura no Mercado Pago.
-     * Status "cancelled" impede cobranças futuras mas mantém o período pago.
-     */
     public void cancelPreapproval(String preapprovalId) {
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(accessToken);
         headers.setContentType(MediaType.APPLICATION_JSON);
-
         Map<String, Object> body = new HashMap<>();
         body.put("status", "cancelled");
-
         try {
             restTemplate.exchange(
                 "https://api.mercadopago.com/preapproval/" + preapprovalId,
@@ -100,9 +116,9 @@ public class MercadoPagoService {
 
     public String getPlanTitle(PlanType plan) {
         return switch (plan) {
-            case PRO_PROFESSOR -> "NotaFácil Pro — Assinatura Mensal";
-            case ESCOLA -> "NotaFácil Escola — Assinatura Mensal";
-            default -> "NotaFácil Free";
+            case PRO_PROFESSOR -> "NotaFacil Pro — Assinatura Mensal";
+            case ESCOLA -> "NotaFacil Escola — Assinatura Mensal";
+            default -> "NotaFacil Free";
         };
     }
 

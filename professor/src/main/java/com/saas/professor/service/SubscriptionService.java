@@ -56,11 +56,12 @@ public class SubscriptionService {
             if (!"authorized".equals(status)) return;
 
             String externalRef = (String) preapproval.get("external_reference");
-            if (externalRef == null || !externalRef.contains("|")) return;
+            if (externalRef == null || externalRef.isBlank()) return;
 
-            String[] parts = externalRef.split("\\|");
-            Long teacherId = Long.parseLong(parts[0]);
-            PlanType plan = PlanType.valueOf(parts[1]);
+            Long teacherId = Long.parseLong(externalRef.trim());
+            // Busca o plan_id do preapproval para determinar o plano
+            String planId = (String) preapproval.get("preapproval_plan_id");
+            PlanType plan = PlanType.PRO_PROFESSOR; // default, pode expandir depois
 
             Teacher teacher = teacherRepository.findById(teacherId)
                     .orElseThrow(() -> new BusinessException("Professor não encontrado"));
