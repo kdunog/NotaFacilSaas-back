@@ -29,8 +29,9 @@ public class MercadoPagoService {
 
     public String createSubscriptionCheckout(Long teacherId, PlanType plan) {
         String planId = getPlanId(plan);
+        String externalReference = teacherId + "%7C" + plan.name();
         return "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id="
-                + planId + "&external_reference=" + teacherId + "|" + plan.name();
+                + planId + "&external_reference=" + externalReference;
     }
 
     @SuppressWarnings("unchecked")
