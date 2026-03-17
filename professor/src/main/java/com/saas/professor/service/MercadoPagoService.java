@@ -24,36 +24,10 @@ public class MercadoPagoService {
 
     private final RestTemplate restTemplate = new RestTemplate();
 
-    /**
-     * Cria um preapproval individualizado para o professor via API do MP.
-     * Retorna a URL de checkout personalizada com external_reference=teacherId.
-     */
-    @SuppressWarnings("unchecked")
     public String createSubscriptionCheckout(Long teacherId, PlanType plan) {
         String planId = getPlanId(plan);
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(accessToken);
-        headers.setContentType(MediaType.APPLICATION_JSON);
-
-        Map<String, Object> body = new HashMap<>();
-        body.put("preapproval_plan_id", planId);
-        body.put("external_reference", String.valueOf(teacherId));
-        body.put("back_url", frontendUrl + "/dashboard");
-
-        try {
-            Map<String, Object> response = restTemplate.postForObject(
-                "https://api.mercadopago.com/preapproval",
-                new HttpEntity<>(body, headers),
-                Map.class
-            );
-            if (response != null && response.containsKey("init_point")) {
-                return (String) response.get("init_point");
-            }
-            throw new RuntimeException("MP nao retornou init_point");
-        } catch (Exception e) {
-            throw new RuntimeException("Erro ao criar preapproval: " + e.getMessage());
-        }
+        return "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id="
+                + planId + "&external_reference=" + teacherId;
     }
 
     @SuppressWarnings("unchecked")
