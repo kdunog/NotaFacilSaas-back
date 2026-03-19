@@ -44,7 +44,7 @@ public class EmailService {
             + "</p>"
             + "</div></div>";
 
-        sendEmail(toEmail, "Confirme seu e-mail \u2014 NotaF\u00e1cil", html);
+        sendEmail(toEmail, "Confirme seu e-mail - NotaFacil", html);
     }
 
     public void sendPasswordResetEmail(String to, String name, String token) {
@@ -67,7 +67,7 @@ public class EmailService {
             + "<p style=\"color:#9ca3af;font-size:12px;text-align:center;\">NotaF&#225;cil &mdash; Gest&#227;o escolar simplificada</p>"
             + "</div>";
 
-        sendEmail(to, "Redefinir sua senha \u2014 NotaF\u00e1cil", html);
+        sendEmail(to, "Redefinir sua senha - NotaFacil", html);
     }
 
     private void sendEmail(String to, String subject, String html) {
