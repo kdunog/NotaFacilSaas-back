@@ -53,18 +53,30 @@ public class SubscriptionService {
             Map<String, Object> preapproval = mercadoPagoService.getPreapproval(preapprovalId);
 
             String status = (String) preapproval.get("status");
-            if (!"authorized".equals(status)) return;
-
             String externalRef = (String) preapproval.get("external_reference");
-            if (externalRef == null || externalRef.isBlank()) return;
+            System.out.println("WEBHOOK - preapprovalId: " + preapprovalId);
+            System.out.println("WEBHOOK - status: " + status);
+            System.out.println("WEBHOOK - external_reference: " + externalRef);
+            System.out.println("WEBHOOK - full payload: " + preapproval);
+
+            // Aceita authorized ou active (MP usa ambos dependendo do plano)
+            if (!"authorized".equals(status) && !"active".equals(status)) {
+                System.out.println("WEBHOOK - status nao aceito, ignorando: " + status);
+                return;
+            }
+
+            if (externalRef == null || externalRef.isBlank()) {
+                System.out.println("WEBHOOK - external_reference vazio, ignorando");
+                return;
+            }
 
             Long teacherId = Long.parseLong(externalRef.trim());
-            // Busca o plan_id do preapproval para determinar o plano
-            String planId = (String) preapproval.get("preapproval_plan_id");
-            PlanType plan = PlanType.PRO_PROFESSOR; // default, pode expandir depois
+            PlanType plan = PlanType.PRO_PROFESSOR;
 
             Teacher teacher = teacherRepository.findById(teacherId)
-                    .orElseThrow(() -> new BusinessException("Professor não encontrado"));
+                    .orElseThrow(() -> new BusinessException("Professor não encontrado: " + teacherId));
+
+            System.out.println("WEBHOOK - ativando plano para professor: " + teacher.getEmail());
 
             // Cancela assinatura anterior se existir
             subscriptionRepository.findByTeacherAndStatus(teacher, SubscriptionStatus.ACTIVE)
@@ -86,7 +98,10 @@ public class SubscriptionService {
             teacher.setActive(true);
             teacherRepository.save(teacher);
 
+            System.out.println("WEBHOOK - plano ativado com sucesso para: " + teacher.getEmail());
+
         } catch (Exception e) {
+            System.err.println("WEBHOOK ERROR: " + e.getMessage());
             throw new BusinessException("Erro ao processar assinatura: " + e.getMessage());
         }
     }
