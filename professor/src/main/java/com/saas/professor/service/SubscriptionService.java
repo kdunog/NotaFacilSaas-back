@@ -45,6 +45,18 @@ public class SubscriptionService {
     }
 
     /**
+     * Salva o mercadoPagoPayerId no professor para identificação futura no webhook.
+     */
+    @Transactional
+    public void linkPayerId(Long teacherId, String mpPayerId) {
+        teacherRepository.findById(teacherId).ifPresent(t -> {
+            t.setMercadoPagoPayerId(mpPayerId);
+            teacherRepository.save(t);
+            System.out.println("PAYER LINKED: teacher " + t.getEmail() + " -> MP payerId " + mpPayerId);
+        });
+    }
+
+    /**
      * Chamado pelo WebhookController quando MP notifica nova assinatura.
      */
     @Transactional
@@ -180,8 +192,26 @@ public class SubscriptionService {
             if (externalRef != null && !externalRef.isBlank()) {
                 Long teacherId = Long.parseLong(externalRef.trim());
                 activatePlan(teacherId, paymentId);
+                return;
+            }
+
+            // Tenta identificar pelo payer.id do MP
+            Object payerObj = payment.get("payer");
+            if (payerObj instanceof java.util.Map<?,?> payer) {
+                String mpPayerId = String.valueOf(payer.get("id"));
+                System.out.println("PAYMENT - payer.id: " + mpPayerId);
+                if (mpPayerId != null && !mpPayerId.equals("null")) {
+                    // Salva o payerId no professor se encontrado pelo checkoutTeacherId
+                    // Tenta buscar pelo payerId já salvo
+                    teacherRepository.findByMercadoPagoPayerId(mpPayerId).ifPresent(t -> {
+                        try { activatePlan(t.getId(), paymentId); } catch (Exception e) { System.err.println("Erro ao ativar por payerId: " + e.getMessage()); }
+                    });
+                    if (teacherRepository.findByMercadoPagoPayerId(mpPayerId).isEmpty()) {
+                        System.out.println("PAYMENT - payer.id nao encontrado no banco: " + mpPayerId);
+                    }
+                }
             } else {
-                System.out.println("PAYMENT - sem external_reference nem preapproval_id, ignorando");
+                System.out.println("PAYMENT - sem external_reference nem preapproval_id nem payer.id, ignorando");
             }
 
         } catch (Exception e) {

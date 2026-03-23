@@ -48,6 +48,8 @@ public class Teacher {
     private LocalDateTime passwordResetExpiresAt;
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
+    @Column(name = "mercado_pago_payer_id")
+    private String mercadoPagoPayerId;
 
     public Teacher(String name, String email, String password, PlanType plan) {
         this.name = name;

@@ -1,19 +1,19 @@
 package com.saas.professor.controller;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
 import com.saas.professor.dto.response.CheckoutResponse;
 import com.saas.professor.dto.response.SubscriptionResponse;
 import com.saas.professor.enums.PlanType;
 import com.saas.professor.security.TeacherUserDetails;
 import com.saas.professor.service.SubscriptionService;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/subscriptions")
@@ -31,7 +31,7 @@ public class SubscriptionController {
         try {
             return ResponseEntity.ok(subscriptionService.findCurrent(userDetails.getTeacher()));
         } catch (Exception e) {
-            return ResponseEntity.ok(null); // sem assinatura ativa — trial ou sem plano
+            return ResponseEntity.ok(null);
         }
     }
 
@@ -41,6 +41,17 @@ public class SubscriptionController {
             @AuthenticationPrincipal TeacherUserDetails userDetails) {
         return ResponseEntity.ok(
                 subscriptionService.createCheckout(plan, userDetails.getTeacher()));
+    }
+
+    @PostMapping("/link-payer")
+    public ResponseEntity<Void> linkPayer(
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal TeacherUserDetails userDetails) {
+        String mpPayerId = body.get("mpPayerId");
+        if (mpPayerId != null && !mpPayerId.isBlank()) {
+            subscriptionService.linkPayerId(userDetails.getTeacher().getId(), mpPayerId);
+        }
+        return ResponseEntity.ok().build();
     }
 
     @DeleteMapping("/cancel")
