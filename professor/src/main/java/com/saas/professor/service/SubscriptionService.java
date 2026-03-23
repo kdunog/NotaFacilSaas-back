@@ -147,6 +147,76 @@ public class SubscriptionService {
                 });
     }
 
+    /**
+     * Chamado quando o IPN envia topic=payment.
+     * Busca o pagamento, extrai o preapproval_id e processa.
+     */
+    @Transactional
+    public void processPayment(String paymentId) {
+        try {
+            System.out.println("PAYMENT - processando pagamento: " + paymentId);
+            Map<String, Object> payment = mercadoPagoService.getPayment(paymentId);
+            System.out.println("PAYMENT - payload: " + payment);
+
+            String status = (String) payment.get("status");
+            System.out.println("PAYMENT - status: " + status);
+
+            if (!"approved".equals(status)) {
+                System.out.println("PAYMENT - nao aprovado, ignorando: " + status);
+                return;
+            }
+
+            // Tenta pegar preapproval_id do pagamento
+            Object preapprovalIdObj = payment.get("preapproval_id");
+            if (preapprovalIdObj != null) {
+                System.out.println("PAYMENT - preapproval_id encontrado: " + preapprovalIdObj);
+                processPreapproval(preapprovalIdObj.toString());
+                return;
+            }
+
+            // Tenta pegar external_reference direto do pagamento
+            String externalRef = (String) payment.get("external_reference");
+            System.out.println("PAYMENT - external_reference: " + externalRef);
+            if (externalRef != null && !externalRef.isBlank()) {
+                Long teacherId = Long.parseLong(externalRef.trim());
+                activatePlan(teacherId, paymentId);
+            } else {
+                System.out.println("PAYMENT - sem external_reference nem preapproval_id, ignorando");
+            }
+
+        } catch (Exception e) {
+            System.err.println("PAYMENT ERROR: " + e.getMessage());
+            throw new BusinessException("Erro ao processar pagamento: " + e.getMessage());
+        }
+    }
+
+    private void activatePlan(Long teacherId, String paymentId) {
+        Teacher teacher = teacherRepository.findById(teacherId)
+                .orElseThrow(() -> new BusinessException("Professor nao encontrado: " + teacherId));
+
+        System.out.println("PAYMENT - ativando plano para: " + teacher.getEmail());
+
+        subscriptionRepository.findByTeacherAndStatus(teacher, SubscriptionStatus.ACTIVE)
+                .ifPresent(old -> {
+                    old.setStatus(SubscriptionStatus.CANCELLED);
+                    subscriptionRepository.save(old);
+                });
+
+        PlanType plan = PlanType.PRO_PROFESSOR;
+        Subscription subscription = new Subscription(
+                teacher, plan, paymentId,
+                mercadoPagoService.getPlanPrice(plan).doubleValue()
+        );
+        subscriptionRepository.save(subscription);
+
+        teacher.setPlan(plan);
+        teacher.setPlanExpiresAt(LocalDateTime.now().plusMonths(1));
+        teacher.setActive(true);
+        teacherRepository.save(teacher);
+
+        System.out.println("PAYMENT - plano ativado com sucesso para: " + teacher.getEmail());
+    }
+
     private SubscriptionResponse toResponse(Subscription s) {
         return new SubscriptionResponse(s.getId(), s.getPlan(), s.getStatus(),
                 s.getAmountPaid(), s.getStartsAt(), s.getExpiresAt());

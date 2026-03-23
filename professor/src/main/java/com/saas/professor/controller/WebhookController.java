@@ -36,8 +36,12 @@ public class WebhookController {
             // Suporte ao formato IPN antigo (topic + id)
             if (topic != null && id != null) {
                 System.out.println("WEBHOOK - formato IPN: topic=" + topic + " id=" + id);
-                if ("preapproval".equals(topic) || "merchant_order".equals(topic)) {
+                if ("preapproval".equals(topic)) {
                     subscriptionService.processPreapproval(id);
+                } else if ("payment".equals(topic)) {
+                    subscriptionService.processPayment(id);
+                } else {
+                    System.out.println("WEBHOOK - topic ignorado: " + topic);
                 }
                 return ResponseEntity.ok().build();
             }
@@ -60,7 +64,7 @@ public class WebhookController {
                 case "subscription_preapproval" -> subscriptionService.processPreapproval(eventId);
                 case "subscription_authorized_payment" -> subscriptionService.processPreapproval(eventId);
                 case "preapproval" -> subscriptionService.processPreapproval(eventId);
-                case "payment" -> System.out.println("WEBHOOK - pagamento avulso ignorado: " + eventId);
+                case "payment" -> subscriptionService.processPayment(eventId);
                 default -> System.out.println("WEBHOOK - tipo nao tratado: " + eventType);
             }
 
