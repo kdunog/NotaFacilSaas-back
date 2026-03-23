@@ -44,6 +44,10 @@ public class SubscriptionService {
         return new CheckoutResponse(url);
     }
 
+    public Map<String, Object> getPaymentInfo(String paymentId) {
+        return mercadoPagoService.getPayment(paymentId);
+    }
+
     /**
      * Salva o mercadoPagoPayerId no professor para identificação futura no webhook.
      */

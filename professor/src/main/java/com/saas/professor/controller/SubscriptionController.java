@@ -43,6 +43,23 @@ public class SubscriptionController {
                 subscriptionService.createCheckout(plan, userDetails.getTeacher()));
     }
 
+    @GetMapping("/payment-payer/{paymentId}")
+    public ResponseEntity<Map<String, String>> getPaymentPayer(
+            @PathVariable String paymentId,
+            @AuthenticationPrincipal TeacherUserDetails userDetails) {
+        try {
+            Map<String, Object> payment = subscriptionService.getPaymentInfo(paymentId);
+            Object payerObj = payment.get("payer");
+            if (payerObj instanceof Map<?,?> payer) {
+                String mpPayerId = String.valueOf(payer.get("id"));
+                return ResponseEntity.ok(Map.of("mpPayerId", mpPayerId));
+            }
+        } catch (Exception e) {
+            System.err.println("Erro ao buscar payer: " + e.getMessage());
+        }
+        return ResponseEntity.ok(Map.of());
+    }
+
     @PostMapping("/link-payer")
     public ResponseEntity<Void> linkPayer(
             @RequestBody Map<String, String> body,
