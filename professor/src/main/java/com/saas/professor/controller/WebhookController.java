@@ -1,14 +1,11 @@
 package com.saas.professor.controller;
-
 import java.util.Map;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
 import com.saas.professor.service.SubscriptionService;
 
 @RestController
@@ -25,33 +22,51 @@ public class WebhookController {
     public ResponseEntity<Void> handleMercadoPago(
             @RequestBody(required = false) Map<String, Object> body,
             @RequestParam(required = false) String type,
-            @RequestParam(required = false) String dataId) {
-
+            @RequestParam(required = false) String dataId,
+            @RequestParam(required = false) String topic,
+            @RequestParam(required = false) String id) {
         try {
-            // MP envia tipo via query param ou body
+            System.out.println("WEBHOOK RECEBIDO ==================");
+            System.out.println("query param type: " + type);
+            System.out.println("query param dataId: " + dataId);
+            System.out.println("query param topic: " + topic);
+            System.out.println("query param id: " + id);
+            System.out.println("body: " + body);
+
+            // Suporte ao formato IPN antigo (topic + id)
+            if (topic != null && id != null) {
+                System.out.println("WEBHOOK - formato IPN: topic=" + topic + " id=" + id);
+                if ("preapproval".equals(topic) || "merchant_order".equals(topic)) {
+                    subscriptionService.processPreapproval(id);
+                }
+                return ResponseEntity.ok().build();
+            }
+
+            // Formato novo (type + data.id)
             String eventType = type != null ? type
                     : (body != null ? (String) body.get("type") : null);
-            String id = dataId != null ? dataId
+            String eventId = dataId != null ? dataId
                     : (body != null && body.get("data") instanceof Map<?, ?> d
                         ? (String) d.get("id") : null);
 
-            if (eventType == null || id == null) return ResponseEntity.ok().build();
+            System.out.println("WEBHOOK - eventType: " + eventType + " eventId: " + eventId);
+
+            if (eventType == null || eventId == null) {
+                System.out.println("WEBHOOK - eventType ou id nulo, ignorando");
+                return ResponseEntity.ok().build();
+            }
 
             switch (eventType) {
-                case "subscription_preapproval" -> {
-                    subscriptionService.processPreapproval(id);
-                }
-                case "subscription_authorized_payment" -> {
-                    // Renovação mensal — renova planExpiresAt
-                    subscriptionService.processPreapproval(id);
-                }
-                default -> { /* ignora outros eventos */ }
+                case "subscription_preapproval" -> subscriptionService.processPreapproval(eventId);
+                case "subscription_authorized_payment" -> subscriptionService.processPreapproval(eventId);
+                case "preapproval" -> subscriptionService.processPreapproval(eventId);
+                case "payment" -> System.out.println("WEBHOOK - pagamento avulso ignorado: " + eventId);
+                default -> System.out.println("WEBHOOK - tipo nao tratado: " + eventType);
             }
-        } catch (Exception e) {
-            // Retorna 200 para MP não reenviar infinitamente
-            System.err.println("Webhook error: " + e.getMessage());
-        }
 
+        } catch (Exception e) {
+            System.err.println("WEBHOOK ERROR: " + e.getMessage());
+        }
         return ResponseEntity.ok().build();
     }
 }
