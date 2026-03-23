@@ -24,10 +24,15 @@ public class MercadoPagoService {
 
     private final RestTemplate restTemplate = new RestTemplate();
 
+    @Value("${app.url}")
+    private String appUrl;
+
     public String createSubscriptionCheckout(Long teacherId, PlanType plan) {
         String planId = getPlanId(plan);
         return "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id="
-                + planId + "&external_reference=" + teacherId;
+                + planId
+                + "&external_reference=" + teacherId
+                + "&notification_url=https://api.notafacil.app.br/webhooks/mercadopago";
     }
 
     @SuppressWarnings("unchecked")
