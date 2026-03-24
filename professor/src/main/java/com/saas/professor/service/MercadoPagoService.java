@@ -22,17 +22,50 @@ public class MercadoPagoService {
     @Value("${mercadopago.plan-id.pro-professor}")
     private String proProfessorPlanId;
 
-    private final RestTemplate restTemplate = new RestTemplate();
-
     @Value("${app.url}")
     private String appUrl;
 
+    private final RestTemplate restTemplate = new RestTemplate();
+
+    /**
+     * Cria um preapproval via API com external_reference=teacherId
+     * e retorna o init_point (URL de checkout personalizada).
+     */
+    @SuppressWarnings("unchecked")
     public String createSubscriptionCheckout(Long teacherId, PlanType plan) {
         String planId = getPlanId(plan);
-        return "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id="
-                + planId
-                + "&external_reference=" + teacherId
-                + "&notification_url=https://api.notafacil.app.br/webhooks/mercadopago";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("preapproval_plan_id", planId);
+        body.put("external_reference", String.valueOf(teacherId));
+        body.put("back_url", frontendUrl + "/plans/success");
+
+        try {
+            Map<String, Object> response = restTemplate.postForObject(
+                "https://api.mercadopago.com/preapproval",
+                new HttpEntity<>(body, headers),
+                Map.class
+            );
+
+            System.out.println("MP preapproval criado: " + response);
+
+            if (response != null && response.containsKey("init_point")) {
+                return (String) response.get("init_point");
+            }
+            throw new RuntimeException("MP nao retornou init_point: " + response);
+
+        } catch (Exception e) {
+            System.err.println("Erro ao criar preapproval via API: " + e.getMessage());
+            // Fallback para URL direta com notification_url
+            return "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id="
+                    + planId
+                    + "&external_reference=" + teacherId
+                    + "&notification_url=https://api.notafacil.app.br/webhooks/mercadopago";
+        }
     }
 
     @SuppressWarnings("unchecked")
