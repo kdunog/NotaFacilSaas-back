@@ -1,13 +1,17 @@
 package com.saas.professor.service;
+
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+
 import com.saas.professor.enums.PlanType;
 
 @Service
@@ -28,15 +32,12 @@ public class MercadoPagoService {
     private final RestTemplate restTemplate = new RestTemplate();
 
     /**
-     * Cria um preapproval via API com external_reference=teacherId
-     * e retorna o init_point (URL de checkout personalizada).
+     * Cria assinatura recorrente via API com external_reference=teacherId
      */
     @SuppressWarnings("unchecked")
     public String createSubscriptionCheckout(Long teacherId, PlanType plan) {
         String planId = getPlanId(plan);
 
-        String successUrl = frontendUrl + "/plans/success?preapproval_id={id}";
-        
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(accessToken);
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -45,65 +46,80 @@ public class MercadoPagoService {
         body.put("preapproval_plan_id", planId);
         body.put("external_reference", String.valueOf(teacherId));
         body.put("back_url", frontendUrl + "/plans/success");
+        body.put("success_url", frontendUrl + "/plans/success");
+        body.put("failure_url", frontendUrl + "/plans/failure");
 
         try {
             Map<String, Object> response = restTemplate.postForObject(
-                "https://api.mercadopago.com/preapproval",
+                "https://api.mercadopago.com/preapproval_plan",
                 new HttpEntity<>(body, headers),
                 Map.class
             );
 
-            System.out.println("MP preapproval criado: " + response);
-
-            if (response != null && response.containsKey("init_point")) {
+            System.out.println("✅ MP preapproval_plan criado: " + response);
+            if (response != null && response.get("init_point") != null) {
                 return (String) response.get("init_point");
             }
-            throw new RuntimeException("MP nao retornou init_point: " + response);
+            throw new RuntimeException("MP não retornou init_point: " + response);
 
         } catch (Exception e) {
-            System.err.println("Erro ao criar preapproval via API: " + e.getMessage());
-            // Fallback para URL direta com notification_url
-            return "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id="
-                    + planId
-                    + "&external_reference=" + teacherId
-                    + "&notification_url=https://api.notafacil.app.br/webhooks/mercadopago";
+            System.err.println("❌ Erro createSubscriptionCheckout: " + e.getMessage());
+            // Fallback URL direta MP
+            return "https://www.mercadopago.com.br/subscriptions/checkout" +
+                   "?preapproval_plan_id=" + planId +
+                   "&external_reference=" + teacherId +
+                   "&notification_url=https://api.notafacil.app.br/webhooks/mercadopago";
         }
     }
 
+    /**
+     * Busca dados da assinatura (preapproval_plan)
+     */
     @SuppressWarnings("unchecked")
     public Map<String, Object> getPreapproval(String preapprovalId) {
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(accessToken);
         try {
             return restTemplate.exchange(
-                "https://api.mercadopago.com/preapproval/" + preapprovalId,
-                org.springframework.http.HttpMethod.GET,
+                "https://api.mercadopago.com/preapproval_plan/" + preapprovalId,
+                HttpMethod.GET,
                 new HttpEntity<>(headers),
                 Map.class
             ).getBody();
         } catch (Exception e) {
-            throw new RuntimeException("Erro ao buscar preapproval: " + e.getMessage());
+            System.err.println("❌ Erro getPreapproval " + preapprovalId + ": " + e.getMessage());
+            throw new RuntimeException("Erro ao buscar preapproval_plan: " + e.getMessage());
         }
     }
 
+    /**
+     * Cancela assinatura no MP
+     */
     public void cancelPreapproval(String preapprovalId) {
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(accessToken);
         headers.setContentType(MediaType.APPLICATION_JSON);
+        
         Map<String, Object> body = new HashMap<>();
         body.put("status", "cancelled");
+        
         try {
             restTemplate.exchange(
-                "https://api.mercadopago.com/preapproval/" + preapprovalId,
-                org.springframework.http.HttpMethod.PUT,
+                "https://api.mercadopago.com/preapproval_plan/" + preapprovalId,
+                HttpMethod.PUT,
                 new HttpEntity<>(body, headers),
                 Map.class
             );
+            System.out.println("✅ Preapproval cancelado: " + preapprovalId);
         } catch (Exception e) {
-            throw new RuntimeException("Erro ao cancelar preapproval no MP: " + e.getMessage());
+            System.err.println("❌ Erro cancelPreapproval " + preapprovalId + ": " + e.getMessage());
+            throw new RuntimeException("Erro ao cancelar preapproval_plan: " + e.getMessage());
         }
     }
 
+    /**
+     * Busca pagamento único (PIX, cartão)
+     */
     @SuppressWarnings("unchecked")
     public Map<String, Object> getPayment(String paymentId) {
         HttpHeaders headers = new HttpHeaders();
@@ -111,11 +127,12 @@ public class MercadoPagoService {
         try {
             return restTemplate.exchange(
                 "https://api.mercadopago.com/v1/payments/" + paymentId,
-                org.springframework.http.HttpMethod.GET,
+                HttpMethod.GET,
                 new HttpEntity<>(headers),
                 Map.class
             ).getBody();
         } catch (Exception e) {
+            System.err.println("❌ Erro getPayment " + paymentId + ": " + e.getMessage());
             throw new RuntimeException("Erro ao buscar pagamento: " + e.getMessage());
         }
     }
