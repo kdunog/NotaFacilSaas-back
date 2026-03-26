@@ -49,6 +49,14 @@ public class MercadoPagoService {
         body.put("back_url", frontendUrl + "/plans/success");
         body.put("success_url", frontendUrl + "/plans/success");
         body.put("failure_url", frontendUrl + "/plans/failure");
+        
+        // ✅ AUTO RECURRING MENSAL!
+        Map<String, Object> autoRecurring = new HashMap<>();
+        autoRecurring.put("frequency", 1);
+        autoRecurring.put("frequency_type", "months");
+        autoRecurring.put("transaction_amount", getPlanPrice(plan).doubleValue());
+        autoRecurring.put("currency_id", "BRL");
+        body.put("auto_recurring", autoRecurring);
 
         try {
             Map<String, Object> response = restTemplate.postForObject(
