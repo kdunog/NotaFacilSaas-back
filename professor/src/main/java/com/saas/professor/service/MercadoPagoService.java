@@ -131,6 +131,10 @@ public class MercadoPagoService {
      */
     @SuppressWarnings("unchecked")
     public Map<String, Object> getPayment(String paymentId) {
+    	 if (paymentId == null || paymentId.trim().isEmpty()) {
+    	        System.out.println("⚠️  Payment ID vazio, ignorando");
+    	        return new HashMap<>();
+    	    }
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(accessToken);
         try {

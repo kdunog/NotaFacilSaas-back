@@ -27,34 +27,32 @@ public class WebhookController {
     @PostMapping("/mercadopago")
     public ResponseEntity<String> handleMercadoPago(@RequestBody String bodyRaw) {
         System.out.println("🔥 WEBHOOK RECEBIDO ==================");
-        System.out.println("BODY RAW: " + bodyRaw);
+        System.out.println("BODY: " + bodyRaw);
         
         try {
-            // ✅ CORREÇÃO: Lê JSON do BODY (formato correto do MP)
             JsonNode jsonNode = objectMapper.readTree(bodyRaw);
             
-            String topic = jsonNode.path("topic").asText();
-            JsonNode dataNode = jsonNode.path("data");
-            String paymentId = dataNode.path("id").asText();
+            // ✅ NOVO FORMATO MP
+            String type = jsonNode.path("type").asText();
+            String paymentId = jsonNode.path("data").path("id").asText();
             
-            System.out.println("📋 TOPIC: " + topic);
-            System.out.println("💳 PAYMENT ID: " + paymentId);
+            System.out.println("📋 TYPE: " + type);
+            System.out.println("💳 ID: " + paymentId);
             
-            // ✅ PROCESSA PAGAMENTO
-            if ("payment".equals(topic) && paymentId != null) {
-                System.out.println("✅ PROCESSANDO PAGAMENTO: " + paymentId);
-                subscriptionService.processPayment(paymentId);
-                System.out.println("✅ PAGAMENTO PROCESSADO!");
-            } else {
-                System.out.println("⚠️  Topic ignorado: " + topic);
+            if (paymentId != null && !paymentId.isEmpty()) {
+                if ("payment".equals(type) || "subscription_authorized_payment".equals(type)) {
+                    System.out.println("✅ PROCESSANDO: " + paymentId);
+                    subscriptionService.processPayment(paymentId);
+                } else {
+                    System.out.println("⚠️  Type ignorado: " + type);
+                }
             }
             
-            return ResponseEntity.ok("OK"); // ← HTTP 200 OBRIGATÓRIO
+            return ResponseEntity.ok("OK");
             
         } catch (Exception e) {
-            System.err.println("💥 ERRO WEBHOOK: " + e.getMessage());
-            e.printStackTrace();
-            return ResponseEntity.ok("OK"); // ← MESMO COM ERRO, 200!
+            System.err.println("💥 WEBHOOK ERROR: " + e.getMessage());
+            return ResponseEntity.ok("OK");
         }
     }
 }
