@@ -30,43 +30,47 @@ public class WebhookController {
             @RequestBody String bodyRaw,
             @RequestHeader(value = "x-signature", required = false) String signature) {
         
-        log.info("🔥 WEBHOOK RECEBIDO - Signature: {}", signature != null ? signature.substring(0, 20) + "..." : "null");
-        log.debug("📄 BODY: {}", bodyRaw);
+        log.info("WEBHOOK RECEBIDO - Signature: {}", 
+                 signature != null ? signature.substring(0, 20) + "..." : "null");
+        log.debug("BODY: {}", bodyRaw);
 
         try {
             JsonNode payload = objectMapper.readTree(bodyRaw);
             String type = payload.path("type").asText();
             String dataId = payload.path("data").path("id").asText();
 
-            log.info("📋 TYPE: {} | ID: {}", type, dataId);
+            log.info("TYPE: {} | ID: {}", type, dataId);
 
-            switch (type) {
-                case "payment" -> {
-                    if (!dataId.isEmpty()) {
-                        log.info("💳 PROCESSANDO PAYMENT: {}", dataId);
+            // ✅ Processa TODOS eventos relevantes
+            if (dataId != null && !dataId.trim().isEmpty()) {
+                switch (type) {
+                    case "payment" -> {
+                        log.info("PROCESSANDO PAYMENT: {}", dataId);
                         subscriptionService.processPayment(dataId);
                     }
-                }
-                case "subscription_authorized_payment" -> {
-                    if (!dataId.isEmpty()) {
-                        log.info("🔄 PROCESSANDO SUB_AUTH_PAYMENT: {}", dataId);
+                    case "subscription_authorized_payment",
+                         "subscription_preapproval",      // ✅ Novo! (seu teste)
+                         "preapproval"                    // Fallback
+                         -> {
+                        log.info("PROCESSANDO PREAPPROVAL: {}", dataId);
                         subscriptionService.processPreapproval(dataId);
                     }
+                    case "merchant_order" -> {
+                        log.info("MERCHANT_ORDER ignorado: {}", dataId);
+                    }
+                    default -> {
+                        log.info("TIPO ignorado: {}", type);
+                    }
                 }
-                case "merchant_order" -> {
-                    log.info("📦 MERCHANT_ORDER: {} (ignorado)", dataId);
-                }
-                case "preapproval_plan" -> {
-                    log.info("📋 PREAPPROVAL_PLAN: {} (processando)", dataId);
-                    subscriptionService.processPreapproval(dataId);
-                }
-                default -> log.warn("⚠️  TIPO IGNORADO: {}", type);
+            } else {
+                log.warn("data.id vazio - ignorando");
             }
 
             return ResponseEntity.ok("OK");
+            
         } catch (Exception e) {
-            log.error("💥 WEBHOOK ERROR: {}", e.getMessage(), e);
-            return ResponseEntity.ok("OK"); // ✅ Sempre OK pro MP
+            log.error("WEBHOOK ERROR: {}", e.getMessage(), e);
+            return ResponseEntity.ok("OK");  // ✅ CRÍTICO: Sempre OK pro MP!
         }
     }
 }
