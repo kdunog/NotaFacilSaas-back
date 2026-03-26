@@ -69,19 +69,23 @@ public class Teacher {
     public boolean isTrialActive() {
         return trialEndsAt != null && LocalDateTime.now().isBefore(trialEndsAt);
     }
+
     public boolean hasActivePlan() {
-        return plan != null && planExpiresAt != null && LocalDateTime.now().isBefore(planExpiresAt);
+        return plan != null && planExpiresAt != null && 
+               LocalDateTime.now().isBefore(planExpiresAt) && active;
     }
- // Teacher.java ou TeacherService
+
+    /**
+     * ✅ ACESSO: trial ativo OU plano ativo
+     */
     public boolean canAccess() {
-        if (this.active != null && this.active) return true;
-        if (this.planExpiresAt == null) return false;
-        
-        return LocalDateTime.now().isBefore(this.planExpiresAt);
+        return isTrialActive() || hasActivePlan();
     }
+
     @PrePersist
     public void prePersist() {
         this.createdAt = LocalDateTime.now();
         if (this.emailVerified == null) this.emailVerified = false;
+        if (this.active == null) this.active = false;
     }
 }
