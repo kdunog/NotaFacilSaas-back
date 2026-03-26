@@ -35,6 +35,8 @@ public class MercadoPagoService {
     public String createSubscriptionCheckout(Long teacherId, PlanType plan) {
         String planId = getPlanId(plan);
 
+        String successUrl = frontendUrl + "/plans/success?preapproval_id={id}";
+        
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(accessToken);
         headers.setContentType(MediaType.APPLICATION_JSON);
