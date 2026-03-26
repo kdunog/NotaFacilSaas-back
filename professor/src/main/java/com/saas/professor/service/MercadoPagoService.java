@@ -41,22 +41,25 @@ public class MercadoPagoService {
         var body = createSubscriptionBody(teacherId, plan, planId);
 
         try {
-            log.info("Criando checkout para teacherId: {} | plan: {}", teacherId, plan);
+            log.info("Criando SUBSCRIPTION para teacherId: {} | planId: {}", teacherId, planId);
             
-            // ✅ CORRETO: /preapproval_plan para assinaturas!
             var response = restTemplate.postForEntity(
-                "https://api.mercadopago.com/preapproval_plan",
+                "https://api.mercadopago.com/preapproval_plan",  // ✅ Correto
                 new HttpEntity<>(body, headers),
                 Map.class
             );
 
+            log.info("MP Response status: {} | body: {}", 
+                     response.getStatusCode(), response.getBody());
+
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                 String initPoint = (String) response.getBody().get("init_point");
-                log.info("Checkout criado: {}", initPoint != null ? initPoint.substring(0, 50) + "..." : "null");
-                return initPoint;
+                if (initPoint != null) {
+                    log.info("Checkout URL: {}", initPoint.substring(0, 50) + "...");
+                    return initPoint;
+                }
             }
 
-            log.error("MP retornou erro: {}", response.getBody());
             throw new RuntimeException("MP nao retornou init_point: " + response.getBody());
             
         } catch (Exception e) {
@@ -140,15 +143,24 @@ public class MercadoPagoService {
      * ✅ BODY SEM auto_recurring - usa plano pré-criado!
      */
     private Map<String, Object> createSubscriptionBody(Long teacherId, PlanType plan, String planId) {
+        Map<String, Object> autoRecurring = Map.of(
+            "frequency", 1,
+            "frequency_type", "months",
+            "transaction_amount", getPlanPrice(plan).doubleValue(),
+            "currency_id", "BRL"
+        );
+
         return Map.of(
             "reason", getPlanTitle(plan),
             "preapproval_plan_id", planId,
             "external_reference", teacherId.toString(),
             "back_url", frontendUrl + "/plans/success",
-            "success_url", frontendUrl + "/plans/success",
-            "failure_url", frontendUrl + "/plans/failure"
+            "success_url", frontendUrl + "/plans/success", 
+            "failure_url", frontendUrl + "/plans/failure",
+            "auto_recurring", autoRecurring  // ✅ Resolve 400!
         );
     }
+    
 
     private String createFallbackUrl(String planId, Long teacherId) {
         return String.format(
