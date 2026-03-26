@@ -10,13 +10,10 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.util.UriComponentsBuilder;
 import com.saas.professor.enums.PlanType;
-import org.springframework.web.util.UriComponentsBuilder;
 
 @Service
 public class MercadoPagoService {
@@ -34,47 +31,54 @@ public class MercadoPagoService {
 
     private final RestTemplate restTemplate = new RestTemplate();
 
+    /**
+     * ✅ CRIA CHECKOUT DE ASSINATURA (preapproval_plan)
+     */
+    @SuppressWarnings("unchecked")
     public String createSubscriptionCheckout(Long teacherId, PlanType plan) {
         String planId = getPlanId(plan);
-        
         var headers = createHeaders();
         var body = createSubscriptionBody(teacherId, plan, planId);
 
         try {
-            log.info("🛒 Criando checkout para teacherId: {} | plan: {}", teacherId, plan);
+            log.info("Criando checkout para teacherId: {} | plan: {}", teacherId, plan);
             
+            // ✅ CORRETO: /preapproval_plan para assinaturas!
             var response = restTemplate.postForEntity(
-                "https://api.mercadopago.com/preapproval",
+                "https://api.mercadopago.com/preapproval_plan",
                 new HttpEntity<>(body, headers),
                 Map.class
             );
 
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                @SuppressWarnings("unchecked")
-                String initPoint = (String) ((Map<String, Object>) response.getBody()).get("init_point");
-                log.info("✅ Checkout criado: {}", initPoint != null ? initPoint.substring(0, 50) + "..." : "null");
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                String initPoint = (String) response.getBody().get("init_point");
+                log.info("Checkout criado: {}", initPoint != null ? initPoint.substring(0, 50) + "..." : "null");
                 return initPoint;
             }
 
-            throw new RuntimeException("MP não retornou init_point válido");
+            log.error("MP retornou erro: {}", response.getBody());
+            throw new RuntimeException("MP nao retornou init_point: " + response.getBody());
             
         } catch (Exception e) {
-            log.error("❌ Erro createSubscriptionCheckout: {}", e.getMessage(), e);
+            log.error("Erro createSubscriptionCheckout: {}", e.getMessage(), e);
             return createFallbackUrl(planId, teacherId);
         }
     }
 
+    /**
+     * ✅ BUSCA ASSINATURA (preapproval)
+     */
     @SuppressWarnings("unchecked")
     public Map<String, Object> getPreapprovalPlan(String preapprovalId) {
         if (preapprovalId == null || preapprovalId.trim().isEmpty()) {
-            log.warn("⚠️ Preapproval ID vazio");
+            log.warn("Preapproval ID vazio");
             return Map.of();
         }
 
         var headers = createHeaders();
         
         try {
-            log.debug("🔍 GET /preapproval/{}", preapprovalId);
+            log.debug("GET /preapproval/{}", preapprovalId);
             
             var response = restTemplate.exchange(
                 "https://api.mercadopago.com/preapproval/" + preapprovalId,
@@ -86,23 +90,26 @@ public class MercadoPagoService {
             var body = response.getBody();
             if (body != null) {
                 String status = (String) body.get("status");
-                log.info("✅ Preapproval {} | status: {}", preapprovalId, status);
+                log.info("Preapproval {} | status: {}", preapprovalId, status);
             }
             return body != null ? body : Map.of();
             
         } catch (HttpClientErrorException e) {
             if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
-                log.warn("⚠️ Preapproval {} NÃO ENCONTRADO (404)", preapprovalId);
+                log.warn("Preapproval {} NAO ENCONTRADO (404)", preapprovalId);
                 return null;
             }
-            log.error("❌ Erro getPreapproval {}: {}", preapprovalId, e.getMessage());
+            log.error("Erro getPreapproval {}: {}", preapprovalId, e.getMessage());
             return null;
         } catch (Exception e) {
-            log.error("❌ Erro getPreapproval {}: {}", preapprovalId, e.getMessage(), e);
+            log.error("Erro getPreapproval {}: {}", preapprovalId, e.getMessage(), e);
             return null;
         }
     }
 
+    /**
+     * ✅ CANCELA ASSINATURA
+     */
     public void cancelPreapproval(String preapprovalId) {
         var headers = createHeaders();
         var body = Map.of("status", "cancelled");
@@ -114,14 +121,14 @@ public class MercadoPagoService {
                 new HttpEntity<>(body, headers),
                 Void.class
             );
-            log.info("✅ Preapproval cancelado: {}", preapprovalId);
+            log.info("Preapproval cancelado: {}", preapprovalId);
         } catch (Exception e) {
-            log.error("❌ Erro cancelPreapproval {}: {}", preapprovalId, e.getMessage());
+            log.error("Erro cancelPreapproval {}: {}", preapprovalId, e.getMessage());
             throw new RuntimeException("Erro ao cancelar preapproval: " + e.getMessage());
         }
     }
 
-    // ✅ UTILITÁRIOS
+    // UTILITÁRIOS
     private HttpHeaders createHeaders() {
         var headers = new HttpHeaders();
         headers.setBearerAuth(accessToken);
@@ -129,33 +136,28 @@ public class MercadoPagoService {
         return headers;
     }
 
+    /**
+     * ✅ BODY SEM auto_recurring - usa plano pré-criado!
+     */
     private Map<String, Object> createSubscriptionBody(Long teacherId, PlanType plan, String planId) {
-        var autoRecurring = Map.of(
-            "frequency", 1,
-            "frequency_type", "months",
-            "transaction_amount", getPlanPrice(plan).doubleValue(),
-            "currency_id", "BRL"
-        );
-
         return Map.of(
             "reason", getPlanTitle(plan),
             "preapproval_plan_id", planId,
             "external_reference", teacherId.toString(),
             "back_url", frontendUrl + "/plans/success",
             "success_url", frontendUrl + "/plans/success",
-            "failure_url", frontendUrl + "/plans/failure",
-            "auto_recurring", autoRecurring
+            "failure_url", frontendUrl + "/plans/failure"
         );
     }
 
     private String createFallbackUrl(String planId, Long teacherId) {
-        return "https://www.mercadopago.com.br/subscriptions/checkout?" +
-               "preapproval_plan_id=" + planId +
-               "&external_reference=" + teacherId +
-               "&notification_url=https://api.notafacil.app.br/webhooks/mercadopago";
+        return String.format(
+            "https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=%s&external_reference=%d&notification_url=https://api.notafacil.app.br/webhooks/mercadopago",
+            planId, teacherId
+        );
     }
 
-    // ✅ PLANOS
+    // PLANOS
     public BigDecimal getPlanPrice(PlanType plan) {
         return switch (plan) {
             case PRO_PROFESSOR -> BigDecimal.valueOf(39.90);
@@ -166,15 +168,15 @@ public class MercadoPagoService {
 
     public String getPlanTitle(PlanType plan) {
         return switch (plan) {
-            case PRO_PROFESSOR -> "NotaFacil Pro — Mensal";
-            case ESCOLA -> "NotaFacil Escola — Mensal";
+            case PRO_PROFESSOR -> "NotaFacil Pro - Mensal";
+            case ESCOLA -> "NotaFacil Escola - Mensal";
             default -> "NotaFacil Free";
         };
     }
 
     private String getPlanId(PlanType plan) {
         return switch (plan) {
-            case PRO_PROFESSOR, ESCOLA -> proProfessorPlanId; // Configurar por plano depois
+            case PRO_PROFESSOR, ESCOLA -> proProfessorPlanId;
             default -> proProfessorPlanId;
         };
     }
