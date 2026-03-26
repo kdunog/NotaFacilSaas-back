@@ -76,9 +76,19 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             // Checar trial/plano apenas para professores (não admin)
             if (!isAdmin && userDetails instanceof TeacherUserDetails teacherDetails) {
                 Teacher teacher = teacherDetails.getTeacher();
+                
+                // 🔥 LOGS PARA DEBUG
+                System.out.println("🔍 JWT FILTER - " + teacher.getEmail());
+                System.out.println("  active: " + teacher.getActive());
+                System.out.println("  plan: " + teacher.getPlan());
+                System.out.println("  trialEndsAt: " + teacher.getTrialEndsAt());
+                System.out.println("  canAccess(): " + teacher.canAccess());
+                
                 String path = requestURI;
                 boolean isCheckout = path.startsWith("/api/v1/subscriptions/checkout");
+                
                 if (!isCheckout && !teacher.canAccess()) {
+                    System.out.println("🚫 403 BLOCKED - " + teacher.getEmail());
                     response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                     response.setContentType("application/json");
                     response.getWriter().write("{\"error\":\"TRIAL_EXPIRED\",\"message\":\"Seu periodo de teste expirou. Assine um plano para continuar.\"}");
