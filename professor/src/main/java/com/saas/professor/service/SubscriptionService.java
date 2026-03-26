@@ -3,7 +3,6 @@ package com.saas.professor.service;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,72 +46,74 @@ public class SubscriptionService {
 
     public CheckoutResponse createCheckout(PlanType plan, Teacher teacher) {
         String checkoutUrl = mercadoPagoService.createSubscriptionCheckout(teacher.getId(), plan);
-        log.info("🛒 Checkout criado para {} | plan: {}", teacher.getEmail(), plan);
+        log.info("Checkout criado para {} | plan: {}", teacher.getEmail(), plan);
         return new CheckoutResponse(checkoutUrl);
     }
 
     /**
-     * ✅ WEBHOOK PRINCIPAL - Processa PREAPPROVAL (assinatura)
+     * ✅ WEBHOOK PREAPPROVAL (assinatura)
      */
     @Transactional
     public void processPreapproval(String preapprovalId) {
-        log.info("🔄 [PREAPPROVAL] Processando: {}", preapprovalId);
+        log.info("[PREAPPROVAL] Processando: {}", preapprovalId);
         
         var preapproval = mercadoPagoService.getPreapprovalPlan(preapprovalId);
         if (preapproval == null) {
-            log.warn("⚠️ Preapproval {} não encontrado", preapprovalId);
+            log.warn("Preapproval {} nao encontrado", preapprovalId);
             return;
         }
 
         String status = (String) preapproval.get("status");
         String externalRef = (String) preapproval.get("external_reference");
 
-        log.info("📋 Preapproval {} | status: {} | ref: {}", preapprovalId, status, externalRef);
+        log.info("Preapproval {} | status: {} | ref: {}", preapprovalId, status, externalRef);
 
-        if (!List.of("authorized", "active").contains(status)) {
-            log.warn("⚠️ Status inválido: {} | ignorando", status);
+        // ✅ Aceita pending + authorized/active
+        if (!List.of("authorized", "active", "pending").contains(status)) {
+            log.warn("Status invalido: {} | ignorando", status);
             return;
         }
 
         if (externalRef == null || externalRef.trim().isEmpty()) {
-            log.warn("⚠️ external_reference vazio");
+            log.warn("external_reference vazio");
             return;
         }
 
         try {
             Long teacherId = Long.parseLong(externalRef.trim());
             activateSubscription(teacherId, preapprovalId, PlanType.PRO_PROFESSOR);
-            log.info("✅ Preapproval processado com sucesso: {}", preapprovalId);
+            log.info("Preapproval processado: {}", preapprovalId);
         } catch (NumberFormatException e) {
-            log.error("❌ external_reference inválido: {}", externalRef);
+            log.error("external_reference invalido: {}", externalRef);
         }
     }
 
     /**
-     * ✅ WEBHOOK PAYMENT - Processa pagamentos individuais
+     * ✅ WEBHOOK PAYMENT
      */
     @Transactional
     public void processPayment(String paymentId) {
-        log.info("💳 [PAYMENT] Processando: {}", paymentId);
+        log.info("[PAYMENT] Processando: {}", paymentId);
         
         var payment = mercadoPagoService.getPreapprovalPlan(paymentId);
         if (payment == null) {
-            log.warn("⚠️ Payment {} não encontrado", paymentId);
+            log.warn("Payment {} nao encontrado", paymentId);
             return;
         }
 
         String status = (String) payment.get("status");
-        log.info("💳 Payment {} | status: {}", paymentId, status);
+        log.info("Payment {} | status: {}", paymentId, status);
 
         if (!"approved".equals(status)) {
-            log.warn("⚠️ Payment não aprovado: {}", status);
+            log.warn("Payment nao aprovado: {}", status);
             return;
         }
 
-        // Tenta extrair preapproval_id
+        // Extrai preapproval_id
         @SuppressWarnings("unchecked")
         Object preapprovalIdObj = payment.get("preapproval_plan_id");
         if (preapprovalIdObj != null) {
+            log.info("Payment {} tem preapproval: {}", paymentId, preapprovalIdObj);
             processPreapproval(preapprovalIdObj.toString());
             return;
         }
@@ -124,13 +125,13 @@ public class SubscriptionService {
                 Long teacherId = Long.parseLong(externalRef.trim());
                 activateSubscription(teacherId, paymentId, PlanType.PRO_PROFESSOR);
             } catch (NumberFormatException e) {
-                log.error("❌ external_reference inválido no payment: {}", externalRef);
+                log.error("external_reference invalido no payment: {}", externalRef);
             }
         }
     }
 
     /**
-     * ✅ CANCELAMENTO PELO USUÁRIO
+     * ✅ CANCELAMENTO USUÁRIO
      */
     @Transactional
     public void cancelByTeacher(Teacher teacher) {
@@ -140,35 +141,36 @@ public class SubscriptionService {
         try {
             mercadoPagoService.cancelPreapproval(activeSub.getMercadoPagoPaymentId());
         } catch (Exception e) {
-            log.error("❌ Erro cancelar MP: {}", e.getMessage());
-            // Continua mesmo com erro no MP
+            log.error("Erro cancelar MP: {}", e.getMessage());
         }
 
         activeSub.setStatus(SubscriptionStatus.CANCELLED);
         subscriptionRepository.save(activeSub);
-        
-        log.info("✅ Assinatura cancelada por usuário: {}", teacher.getEmail());
+        log.info("Assinatura cancelada: {}", teacher.getEmail());
     }
 
     /**
-     * ✅ LÓGICA CENTRAL - Ativa plano
+     * ✅ ATIVA PLANO (lógica central)
      */
     private void activateSubscription(Long teacherId, String mpId, PlanType plan) {
         var teacher = teacherRepository.findById(teacherId)
-            .orElseThrow(() -> new BusinessException("Professor não encontrado: " + teacherId));
+            .orElseThrow(() -> new BusinessException("Professor nao encontrado: " + teacherId));
 
-        log.info("🎯 Ativando plano {} para {}", plan, teacher.getEmail());
+        log.info("Ativando plano {} para {}", plan, teacher.getEmail());
 
-        // Cancela anterior
+        // ✅ REMOVE TRIAL quando ativa plano pago!
+        teacher.setTrialEndsAt(null);  
+
+        // Cancela assinatura anterior
         subscriptionRepository.findByTeacherAndStatus(teacher, SubscriptionStatus.ACTIVE)
             .ifPresent(old -> {
                 old.setStatus(SubscriptionStatus.CANCELLED);
                 subscriptionRepository.save(old);
             });
 
-        // Cria nova
-        var subscription = new Subscription(teacher, plan, mpId, 
-            mercadoPagoService.getPlanPrice(plan).doubleValue());
+        // Cria nova assinatura
+        double amount = mercadoPagoService.getPlanPrice(plan).doubleValue();
+        var subscription = new Subscription(teacher, plan, mpId, amount);
         subscriptionRepository.save(subscription);
 
         // Ativa professor
@@ -177,8 +179,7 @@ public class SubscriptionService {
         teacher.setActive(true);
         teacherRepository.save(teacher);
 
-        log.info("✅ Plano ativado: {} | expira: {}", teacher.getEmail(), 
-                 teacher.getPlanExpiresAt());
+        log.info("✅ Plano ativado SEM trial | expira: {}", teacher.getPlanExpiresAt());
     }
 
     private SubscriptionResponse toResponse(Subscription s) {
