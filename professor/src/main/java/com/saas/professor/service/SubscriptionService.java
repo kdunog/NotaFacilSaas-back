@@ -3,7 +3,10 @@ package com.saas.professor.service;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,13 +23,15 @@ import com.saas.professor.repository.TeacherRepository;
 @Service
 public class SubscriptionService {
 
+    private static final Logger log = LoggerFactory.getLogger(SubscriptionService.class);
+
     private final SubscriptionRepository subscriptionRepository;
     private final TeacherRepository teacherRepository;
     private final MercadoPagoService mercadoPagoService;
 
     public SubscriptionService(SubscriptionRepository subscriptionRepository,
-            TeacherRepository teacherRepository,
-            MercadoPagoService mercadoPagoService) {
+                               TeacherRepository teacherRepository,
+                               MercadoPagoService mercadoPagoService) {
         this.subscriptionRepository = subscriptionRepository;
         this.teacherRepository = teacherRepository;
         this.mercadoPagoService = mercadoPagoService;
@@ -34,227 +39,152 @@ public class SubscriptionService {
 
     @Transactional(readOnly = true)
     public SubscriptionResponse findCurrent(Teacher teacher) {
-        // ✅ Busca TRIAL + ACTIVE
         return subscriptionRepository
-            .findFirstByTeacherOrderByCreatedAtDesc(teacher)  // Pega a mais recente
+            .findFirstByTeacherOrderByCreatedAtDesc(teacher)
             .map(this::toResponse)
             .orElseThrow(() -> new BusinessException("Assine um plano para continuar"));
     }
 
     public CheckoutResponse createCheckout(PlanType plan, Teacher teacher) {
-        String url = mercadoPagoService.createSubscriptionCheckout(teacher.getId(), plan);
-        return new CheckoutResponse(url);
-    }
-
-    public Map<String, Object> getPaymentInfo(String paymentId) {
-        return mercadoPagoService.getPayment(paymentId);
+        String checkoutUrl = mercadoPagoService.createSubscriptionCheckout(teacher.getId(), plan);
+        log.info("🛒 Checkout criado para {} | plan: {}", teacher.getEmail(), plan);
+        return new CheckoutResponse(checkoutUrl);
     }
 
     /**
-     * Salva o mercadoPagoPayerId no professor para identificação futura no webhook.
-     */
-    @Transactional
-    public void linkPayerId(Long teacherId, String mpPayerId) {
-        teacherRepository.findById(teacherId).ifPresent(t -> {
-            t.setMercadoPagoPayerId(mpPayerId);
-            teacherRepository.save(t);
-            System.out.println("PAYER LINKED: teacher " + t.getEmail() + " -> MP payerId " + mpPayerId);
-        });
-    }
-
-    /**
-     * Chamado pelo WebhookController quando MP notifica nova assinatura.
+     * ✅ WEBHOOK PRINCIPAL - Processa PREAPPROVAL (assinatura)
      */
     @Transactional
     public void processPreapproval(String preapprovalId) {
+        log.info("🔄 [PREAPPROVAL] Processando: {}", preapprovalId);
+        
+        var preapproval = mercadoPagoService.getPreapprovalPlan(preapprovalId);
+        if (preapproval == null) {
+            log.warn("⚠️ Preapproval {} não encontrado", preapprovalId);
+            return;
+        }
+
+        String status = (String) preapproval.get("status");
+        String externalRef = (String) preapproval.get("external_reference");
+
+        log.info("📋 Preapproval {} | status: {} | ref: {}", preapprovalId, status, externalRef);
+
+        if (!List.of("authorized", "active").contains(status)) {
+            log.warn("⚠️ Status inválido: {} | ignorando", status);
+            return;
+        }
+
+        if (externalRef == null || externalRef.trim().isEmpty()) {
+            log.warn("⚠️ external_reference vazio");
+            return;
+        }
+
         try {
-            Map<String, Object> preapproval = mercadoPagoService.getPreapproval(preapprovalId);
-
-            String status = (String) preapproval.get("status");
-            String externalRef = (String) preapproval.get("external_reference");
-            System.out.println("WEBHOOK - preapprovalId: " + preapprovalId);
-            System.out.println("WEBHOOK - status: " + status);
-            System.out.println("WEBHOOK - external_reference: " + externalRef);
-            System.out.println("WEBHOOK - full payload: " + preapproval);
-
-            // Aceita authorized ou active (MP usa ambos dependendo do plano)
-            if (!"authorized".equals(status) && !"active".equals(status)) {
-                System.out.println("WEBHOOK - status nao aceito, ignorando: " + status);
-                return;
-            }
-
-            if (externalRef == null || externalRef.isBlank()) {
-                System.out.println("WEBHOOK - external_reference vazio, ignorando");
-                return;
-            }
-
             Long teacherId = Long.parseLong(externalRef.trim());
-            PlanType plan = PlanType.PRO_PROFESSOR;
-
-            Teacher teacher = teacherRepository.findById(teacherId)
-                    .orElseThrow(() -> new BusinessException("Professor não encontrado: " + teacherId));
-
-            System.out.println("WEBHOOK - ativando plano para professor: " + teacher.getEmail());
-
-            // Cancela assinatura anterior se existir
-            subscriptionRepository.findByTeacherAndStatus(teacher, SubscriptionStatus.ACTIVE)
-                    .ifPresent(old -> {
-                        old.setStatus(SubscriptionStatus.CANCELLED);
-                        subscriptionRepository.save(old);
-                    });
-
-            // Cria nova assinatura
-            Subscription subscription = new Subscription(
-                    teacher, plan, preapprovalId,
-                    mercadoPagoService.getPlanPrice(plan).doubleValue()
-            );
-            subscriptionRepository.save(subscription);
-
-            // Ativa plano do professor
-            teacher.setPlan(plan);
-            teacher.setPlanExpiresAt(LocalDateTime.now().plusMonths(1));
-            teacher.setActive(true);
-            teacherRepository.save(teacher);
-
-            System.out.println("WEBHOOK - plano ativado com sucesso para: " + teacher.getEmail());
-
-        } catch (Exception e) {
-            System.err.println("WEBHOOK ERROR: " + e.getMessage());
-            throw new BusinessException("Erro ao processar assinatura: " + e.getMessage());
+            activateSubscription(teacherId, preapprovalId, PlanType.PRO_PROFESSOR);
+            log.info("✅ Preapproval processado com sucesso: {}", preapprovalId);
+        } catch (NumberFormatException e) {
+            log.error("❌ external_reference inválido: {}", externalRef);
         }
     }
 
     /**
-     * Cancelamento pelo próprio usuário via página de perfil.
-     * Cancela no MP + marca como cancelada no banco.
-     * NÃO zera planExpiresAt — acesso continua até o fim do período pago.
-     */
-    @Transactional
-    public void cancelByTeacher(Teacher teacher) {
-        Subscription subscription = subscriptionRepository
-                .findByTeacherAndStatus(teacher, SubscriptionStatus.ACTIVE)
-                .orElseThrow(() -> new BusinessException("Nenhuma assinatura ativa encontrada"));
-
-        // Cancela no Mercado Pago para parar cobranças futuras
-        try {
-            mercadoPagoService.cancelPreapproval(subscription.getMercadoPagoPaymentId());
-        } catch (Exception e) {
-            // Log mas não impede o cancelamento local
-            System.err.println("Erro ao cancelar no MP: " + e.getMessage());
-        }
-
-        // Marca como cancelada no banco
-        subscription.setStatus(SubscriptionStatus.CANCELLED);
-        subscriptionRepository.save(subscription);
-
-        // NÃO zera planExpiresAt — acesso continua até a data já salva
-        // Quando planExpiresAt passar, canAccess() retorna false automaticamente
-    }
-
-    /**
-     * Chamado pelo webhook do MP quando cancelamento vem de lá.
-     * Mesmo comportamento — mantém acesso até fim do período.
-     */
-    @Transactional
-    public void cancelSubscription(String preapprovalId) {
-        subscriptionRepository.findByMercadoPagoPaymentId(preapprovalId)
-                .ifPresent(sub -> {
-                    sub.setStatus(SubscriptionStatus.CANCELLED);
-                    subscriptionRepository.save(sub);
-                    // NÃO zera planExpiresAt — acesso mantido até fim do período
-                });
-    }
-
-    /**
-     * Chamado quando o IPN envia topic=payment.
-     * Busca o pagamento, extrai o preapproval_id e processa.
+     * ✅ WEBHOOK PAYMENT - Processa pagamentos individuais
      */
     @Transactional
     public void processPayment(String paymentId) {
-        try {
-            System.out.println("PAYMENT - processando pagamento: " + paymentId);
-            Map<String, Object> payment = mercadoPagoService.getPayment(paymentId);
-            System.out.println("PAYMENT - payload: " + payment);
+        log.info("💳 [PAYMENT] Processando: {}", paymentId);
+        
+        var payment = mercadoPagoService.getPreapprovalPlan(paymentId);
+        if (payment == null) {
+            log.warn("⚠️ Payment {} não encontrado", paymentId);
+            return;
+        }
 
-            String status = (String) payment.get("status");
-            System.out.println("PAYMENT - status: " + status);
+        String status = (String) payment.get("status");
+        log.info("💳 Payment {} | status: {}", paymentId, status);
 
-            if (!"approved".equals(status)) {
-                System.out.println("PAYMENT - nao aprovado, ignorando: " + status);
-                return;
-            }
+        if (!"approved".equals(status)) {
+            log.warn("⚠️ Payment não aprovado: {}", status);
+            return;
+        }
 
-            // Tenta pegar preapproval_id do pagamento
-            Object preapprovalIdObj = payment.get("preapproval_id");
-            if (preapprovalIdObj != null) {
-                System.out.println("PAYMENT - preapproval_id encontrado: " + preapprovalIdObj);
-                processPreapproval(preapprovalIdObj.toString());
-                return;
-            }
+        // Tenta extrair preapproval_id
+        @SuppressWarnings("unchecked")
+        Object preapprovalIdObj = payment.get("preapproval_plan_id");
+        if (preapprovalIdObj != null) {
+            processPreapproval(preapprovalIdObj.toString());
+            return;
+        }
 
-            // Tenta pegar external_reference direto do pagamento
-            String externalRef = (String) payment.get("external_reference");
-            System.out.println("PAYMENT - external_reference: " + externalRef);
-            if (externalRef != null && !externalRef.isBlank()) {
+        // Fallback external_reference
+        String externalRef = (String) payment.get("external_reference");
+        if (externalRef != null && !externalRef.trim().isEmpty()) {
+            try {
                 Long teacherId = Long.parseLong(externalRef.trim());
-                activatePlan(teacherId, paymentId);
-                return;
+                activateSubscription(teacherId, paymentId, PlanType.PRO_PROFESSOR);
+            } catch (NumberFormatException e) {
+                log.error("❌ external_reference inválido no payment: {}", externalRef);
             }
-
-            // Tenta identificar pelo payer.id do MP
-            Object payerObj = payment.get("payer");
-            if (payerObj instanceof java.util.Map<?,?> payer) {
-                String mpPayerId = String.valueOf(payer.get("id"));
-                System.out.println("PAYMENT - payer.id: " + mpPayerId);
-                if (mpPayerId != null && !mpPayerId.equals("null")) {
-                    // Salva o payerId no professor se encontrado pelo checkoutTeacherId
-                    // Tenta buscar pelo payerId já salvo
-                    teacherRepository.findByMercadoPagoPayerId(mpPayerId).ifPresent(t -> {
-                        try { activatePlan(t.getId(), paymentId); } catch (Exception e) { System.err.println("Erro ao ativar por payerId: " + e.getMessage()); }
-                    });
-                    if (teacherRepository.findByMercadoPagoPayerId(mpPayerId).isEmpty()) {
-                        System.out.println("PAYMENT - payer.id nao encontrado no banco: " + mpPayerId);
-                    }
-                }
-            } else {
-                System.out.println("PAYMENT - sem external_reference nem preapproval_id nem payer.id, ignorando");
-            }
-
-        } catch (Exception e) {
-            System.err.println("PAYMENT ERROR: " + e.getMessage());
-            throw new BusinessException("Erro ao processar pagamento: " + e.getMessage());
         }
     }
 
-    private void activatePlan(Long teacherId, String paymentId) {
-        Teacher teacher = teacherRepository.findById(teacherId)
-                .orElseThrow(() -> new BusinessException("Professor nao encontrado: " + teacherId));
+    /**
+     * ✅ CANCELAMENTO PELO USUÁRIO
+     */
+    @Transactional
+    public void cancelByTeacher(Teacher teacher) {
+        var activeSub = subscriptionRepository.findByTeacherAndStatus(teacher, SubscriptionStatus.ACTIVE)
+            .orElseThrow(() -> new BusinessException("Nenhuma assinatura ativa"));
 
-        System.out.println("PAYMENT - ativando plano para: " + teacher.getEmail());
+        try {
+            mercadoPagoService.cancelPreapproval(activeSub.getMercadoPagoPaymentId());
+        } catch (Exception e) {
+            log.error("❌ Erro cancelar MP: {}", e.getMessage());
+            // Continua mesmo com erro no MP
+        }
 
+        activeSub.setStatus(SubscriptionStatus.CANCELLED);
+        subscriptionRepository.save(activeSub);
+        
+        log.info("✅ Assinatura cancelada por usuário: {}", teacher.getEmail());
+    }
+
+    /**
+     * ✅ LÓGICA CENTRAL - Ativa plano
+     */
+    private void activateSubscription(Long teacherId, String mpId, PlanType plan) {
+        var teacher = teacherRepository.findById(teacherId)
+            .orElseThrow(() -> new BusinessException("Professor não encontrado: " + teacherId));
+
+        log.info("🎯 Ativando plano {} para {}", plan, teacher.getEmail());
+
+        // Cancela anterior
         subscriptionRepository.findByTeacherAndStatus(teacher, SubscriptionStatus.ACTIVE)
-                .ifPresent(old -> {
-                    old.setStatus(SubscriptionStatus.CANCELLED);
-                    subscriptionRepository.save(old);
-                });
+            .ifPresent(old -> {
+                old.setStatus(SubscriptionStatus.CANCELLED);
+                subscriptionRepository.save(old);
+            });
 
-        PlanType plan = PlanType.PRO_PROFESSOR;
-        Subscription subscription = new Subscription(
-                teacher, plan, paymentId,
-                mercadoPagoService.getPlanPrice(plan).doubleValue()
-        );
+        // Cria nova
+        var subscription = new Subscription(teacher, plan, mpId, 
+            mercadoPagoService.getPlanPrice(plan).doubleValue());
         subscriptionRepository.save(subscription);
 
+        // Ativa professor
         teacher.setPlan(plan);
         teacher.setPlanExpiresAt(LocalDateTime.now().plusMonths(1));
         teacher.setActive(true);
         teacherRepository.save(teacher);
 
-        System.out.println("PAYMENT - plano ativado com sucesso para: " + teacher.getEmail());
+        log.info("✅ Plano ativado: {} | expira: {}", teacher.getEmail(), 
+                 teacher.getPlanExpiresAt());
     }
 
     private SubscriptionResponse toResponse(Subscription s) {
-        return new SubscriptionResponse(s.getId(), s.getPlan(), s.getStatus(),
-                s.getAmountPaid(), s.getStartsAt(), s.getExpiresAt());
+        return new SubscriptionResponse(
+            s.getId(), s.getPlan(), s.getStatus(),
+            s.getAmountPaid(), s.getStartsAt(), s.getExpiresAt()
+        );
     }
 }
