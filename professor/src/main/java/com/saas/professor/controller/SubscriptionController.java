@@ -27,14 +27,13 @@ public class SubscriptionController {
     private final SubscriptionService subscriptionService;
     private final TeacherRepository teacherRepository; // ← INJETE TeacherRepository!
     private final MercadoPagoService mercadoPagoService; // ← INJETE MercadoPagoService!
-    private Logger log = LoggerFactory.getLogger(SubscriptionController.class);
+    private static final Logger log = LoggerFactory.getLogger(SubscriptionController.class);
 
     public SubscriptionController(SubscriptionService subscriptionService, TeacherRepository teacherRepository, 
-    		MercadoPagoService mercadoPagoService, Logger logger) {
+    		MercadoPagoService mercadoPagoService) {
         this.subscriptionService = subscriptionService;
         this.teacherRepository = teacherRepository; // ← INJETE TeacherRepository!
         this.mercadoPagoService = mercadoPagoService; // ← INJETE MercadoPagoService!
-        this.log = logger; // ← INJETE Logger!
     }
 
     @GetMapping("/my")
