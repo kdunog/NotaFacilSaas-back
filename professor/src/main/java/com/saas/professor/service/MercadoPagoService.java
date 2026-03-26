@@ -43,6 +43,7 @@ public class MercadoPagoService {
         headers.setContentType(MediaType.APPLICATION_JSON);
 
         Map<String, Object> body = new HashMap<>();
+        body.put("reason", getPlanTitle(plan));
         body.put("preapproval_plan_id", planId);
         body.put("external_reference", String.valueOf(teacherId));
         body.put("back_url", frontendUrl + "/plans/success");
