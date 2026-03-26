@@ -28,11 +28,15 @@ public class SubscriptionController {
     @GetMapping("/my")
     public ResponseEntity<SubscriptionResponse> findCurrent(
             @AuthenticationPrincipal TeacherUserDetails userDetails) {
-        try {
-            return ResponseEntity.ok(subscriptionService.findCurrent(userDetails.getTeacher()));
-        } catch (Exception e) {
-            return ResponseEntity.ok(null);
+        
+        // ✅ Bloqueia ANTES de chamar service
+        if (!userDetails.canAccess()) {
+            return ResponseEntity.status(403).build();
         }
+        
+        return ResponseEntity.ok(
+            subscriptionService.findCurrent(userDetails.getTeacher())
+        );
     }
 
     @PostMapping("/checkout/{plan}")

@@ -72,8 +72,12 @@ public class Teacher {
     public boolean hasActivePlan() {
         return plan != null && planExpiresAt != null && LocalDateTime.now().isBefore(planExpiresAt);
     }
+ // Teacher.java ou TeacherService
     public boolean canAccess() {
-        return isTrialActive() || hasActivePlan();
+        if (this.active != null && this.active) return true;
+        if (this.planExpiresAt == null) return false;
+        
+        return LocalDateTime.now().isBefore(this.planExpiresAt);
     }
     @PrePersist
     public void prePersist() {

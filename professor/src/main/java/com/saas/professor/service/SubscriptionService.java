@@ -1,6 +1,7 @@
 package com.saas.professor.service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.stereotype.Service;
@@ -33,10 +34,11 @@ public class SubscriptionService {
 
     @Transactional(readOnly = true)
     public SubscriptionResponse findCurrent(Teacher teacher) {
-        Subscription subscription = subscriptionRepository
-                .findByTeacherAndStatus(teacher, SubscriptionStatus.ACTIVE)
-                .orElseThrow(() -> new BusinessException("Nenhuma assinatura ativa encontrada"));
-        return toResponse(subscription);
+        // ✅ Busca TRIAL + ACTIVE
+        return subscriptionRepository
+            .findFirstByTeacherOrderByCreatedAtDesc(teacher)  // Pega a mais recente
+            .map(this::toResponse)
+            .orElseThrow(() -> new BusinessException("Assine um plano para continuar"));
     }
 
     public CheckoutResponse createCheckout(PlanType plan, Teacher teacher) {

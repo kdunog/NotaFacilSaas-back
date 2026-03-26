@@ -1,5 +1,6 @@
 package com.saas.professor.security;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 
@@ -19,6 +20,15 @@ public class TeacherUserDetails implements UserDetails {
 	public Teacher getTeacher() {
 	    return teacher;
 	}
+	
+	 public boolean canAccess() {
+	        Teacher teacher = getTeacher();
+	        if (teacher.hasActivePlan()) return true;
+	        
+	        // Permite trial ou plano não expirado
+	        return teacher.getPlanExpiresAt() != null && 
+	               LocalDateTime.now().isBefore(teacher.getPlanExpiresAt());
+	    }
 	
 	@Override
 	public String getUsername() { return teacher.getEmail(); }

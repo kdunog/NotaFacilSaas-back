@@ -1,5 +1,6 @@
 package com.saas.professor.repository;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -11,6 +12,10 @@ import com.saas.professor.entity.Teacher;
 import com.saas.professor.enums.SubscriptionStatus;
 
 public interface SubscriptionRepository extends JpaRepository<Subscription, Long> {
+	
+	// SubscriptionRepository.java
+	Optional<Subscription> findByTeacherAndStatusIn(Teacher teacher, List<SubscriptionStatus> status);
+	Optional<Subscription> findFirstByTeacherOrderByCreatedAtDesc(Teacher teacher);
 	
 	Optional<Subscription> findByTeacherAndStatus(Teacher teacher, SubscriptionStatus status);
 
