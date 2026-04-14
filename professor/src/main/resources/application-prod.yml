@@ -20,3 +20,8 @@ mercadopago:
 
 app:
   frontend-url: ${APP_FRONTEND_URL}
+  url: ${APP_URL}
+  
+resend:
+  api-key: ${RESEND_API_KEY}
+  from: ${RESEND_FROM:onboarding@resend.dev}
